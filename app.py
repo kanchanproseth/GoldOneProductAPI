@@ -1,9 +1,11 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_restful import Resource, Api, reqparse
 from werkzeug.datastructures import ImmutableMultiDict
 from flask_pymongo import PyMongo
 from flask_bcrypt import Bcrypt
 from uuid import uuid4
+from bson.json_util import dumps
+import datetime
 import os
 
 app = Flask(__name__)
@@ -14,13 +16,13 @@ app.secret_key = 'proseth123'
 api = Api(app)
 mongo = PyMongo(app)
 bcrypt = Bcrypt(app)
+path = os.path.abspath(__file__)
+dir_path = os.path.dirname(path)
 
 
 class MockProduct(Resource):
-
     # @jwt_required()
     def get(self):
-
         return {
             "categories": [
                 {
@@ -180,34 +182,46 @@ class MockProduct(Resource):
                  }]
         }
 
-    # def post(self, name):
-    #     if next(filter(lambda x: x['name'] == name, items), None) is not None:
-    #         return {'message': "An item with name '{}' already exists".format(name)}, 400
-    #     data = Item.parser.parse_args()
-    #     item = {'name': data['name'], 'price': data['price']}
-    #     items.append(item)
-    #     return item, 201
-
-    # def delete(self, name):
-    #     global items
-    #     items = list(filter(lambda x: x['name'] != name, items))
-    #     return {'message': 'item deleted'}
-
-    # def put(self, name):
-    #     data = Item.parser.parse_args()
-    #     item = next(filter(lambda x: x['name'] == name, items), None)
-    #     if item is None:
-    #         item = {
-    #             'name': name,
-    #             'price': data['price']
-    #         }
-    #         items.append(item)
-    #     else:
-    #         item.update(data)
-    #     return item
-
-
 class Products(Resource):
+    print(dir_path)
+    def get(self):
+        list_product_data = []
+        list_asset_data = []
+        data = []
+        categories = mongo.db.category
+        assets = mongo.db.asset
+        products = mongo.db.product
+        list_product = []
+        for category in categories.find():
+            for asset in assets.find():
+                for product in products.find({'asset_id': asset['_id']}):
+                    product_data = {
+                        'product_id': str(product['_id']),
+                        "product_name": product['product_name'],
+                        "short_desc": product['short_desc'],
+                        "long_desc": product['long_desc'],
+                        "price": product['price'],
+                        "image_uri": (dir_path + "/" + product['image_uri'])
+                    }
+                    list_product_data.append(product_data)
+
+                asset_data = {
+                    'asset_id': str(asset['_id']),
+                    'asset_model': str(asset['asset_model']),
+                    'list_product': list_product_data
+                }
+                list_asset_data.append(asset_data)
+            
+            category_data = {
+                'category_id': str(category['_id']),
+                'category_name': str(category['category_name']),
+                'asset':list_asset_data
+                }
+            data.append(category_data)
+                    
+        return jsonify({'categories': data}) 
+
+
     def post(self):
         data = dict(request.form)
         print(data)
@@ -231,41 +245,215 @@ class Products(Resource):
         products = mongo.db.product
 
         if not categories.find_one({'category_name': category_name}):
-           category_id = categories.insert({"category_name": category_name})
+            category_id = categories.insert({"category_name": category_name})
             if not assets.find_one({'asset_model': asset_model}):
                 asset_id = assets.insert({"asset_model": asset_model})
-                if products.find_one({'category_id': category_id, 'asset_id': asset_id, 'product_name': product_name}):
-                    return {'message': 'this product_name is existed in this category and asset', 'code': '404'}
-                elif products.find_one({'category_id': category_id, 'product_name': product_name}) and not product_name == products.find_one({'asset_id': asset_id, 'product_name': product_name}):
+                product = products.find_one({'product_name': product_name})
+                product = products.find_one({'product_name': product_name})
+                if products.find_one({'product_name': product_name}):
+                    if (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        return {'message': 'this product_name is existed in this category and asset', 'code': '404'}
+                    elif (product['category_id'] == category_id) and not (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to existed category new asset', 'code': '200'}
+                    elif not (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to new category existed asset', 'code': '200'}
+                else:
                     image_uri = os.path.join(UPLOAD_FOLDER, f_name)
                     files.save(image_uri)
                     product_id = products.insert({
-                        'category_id': category['_id'],
-                        'asset_id': asset['_id'],
+                        'category_id': category_id,
+                        'asset_id': asset_id,
                         'product_name': product_name,
                         'short_desc': short_desc,
                         'long_desc': long_desc,
                         'price': price,
                         'image_uri': image_uri
                     })
-                    return {'message': 'new product add successfully to existed category', 'code': '200'}
-                elif not products.find_one({'category_id': category_id, 'product_name': product_name}) and product_name == products.find_one({'asset_id': asset_id, 'product_name': product_name}):
+                    return {'message': 'new product add successfully to existed category and existed asset', 'code': '200'}
+            elif assets.find_one({'asset_model': asset_model}):
+                asset = assets.find_one({'asset_model': asset_model})
+                asset_id = asset['_id']
+                product = products.find_one({'product_name': product_name})
+                product = products.find_one({'product_name': product_name})
+                if products.find_one({'product_name': product_name}):
+                    if (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        return {'message': 'this product_name is existed in this category and asset', 'code': '404'}
+                    elif (product['category_id'] == category_id) and not (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to existed category new asset', 'code': '200'}
+                    elif not (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to new category existed asset', 'code': '200'}
+                else:
                     image_uri = os.path.join(UPLOAD_FOLDER, f_name)
                     files.save(image_uri)
                     product_id = products.insert({
-                        'category_id': category['_id'],
-                        'asset_id': asset['_id'],
+                        'category_id': category_id,
+                        'asset_id': asset_id,
                         'product_name': product_name,
                         'short_desc': short_desc,
                         'long_desc': long_desc,
                         'price': price,
                         'image_uri': image_uri
                     })
-                    return {'message': 'new product add successfully to existed asset', 'code': '200'}
+                    return {'message': 'new product add successfully to existed category and existed asset', 'code': '200'}
+
+        if categories.find_one({'category_name': category_name}):
+            category = categories.find_one({'category_name': category_name})
+            category_id = category['_id']
+            # existed category, new asset
+            if not assets.find_one({'asset_model': asset_model}):
+                asset_id = assets.insert({"asset_model": asset_model})
+                product = products.find_one({'product_name': product_name})
+                print("1111111111")
+                if products.find_one({'product_name': product_name}):
+                    if (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        return {'message': 'this product_name is existed in this category and asset', 'code': '404'}
+                    elif (product['category_id'] == category_id) and not (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to existed category new asset', 'code': '200'}
+                    elif not (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to new category existed asset', 'code': '200'}
+                else:
+                    image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                    files.save(image_uri)
+                    product_id = products.insert({
+                        'category_id': category_id,
+                        'asset_id': asset_id,
+                        'product_name': product_name,
+                        'short_desc': short_desc,
+                        'long_desc': long_desc,
+                        'price': price,
+                        'image_uri': image_uri
+                    })
+                    return {'message': 'new product add successfully to existed category and existed asset', 'code': '200'}
+            #existed category, existed asset
+            elif assets.find_one({'asset_model': asset_model}):
+                print("222221312312")
+                asset = assets.find_one({'asset_model': asset_model})
+                asset_id = asset['_id']
+                product = products.find_one({'product_name': product_name})
+                if products.find_one({'product_name': product_name}):
+                    print("*****************")
+                    if (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        return {'message': 'this product_name is existed in this category and asset', 'code': '404'}
+                    elif (product['category_id'] == category_id) and not (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to existed category new asset', 'code': '200'}
+                    elif not (product['category_id'] == category_id) and (product['asset_id'] == asset_id):
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                        return {'message': 'new product add successfully to new category existed asset', 'code': '200'}
+                    else:
+                        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                        files.save(image_uri)
+                        product_id = products.insert({
+                                'category_id': category_id,
+                                'asset_id': asset_id,
+                                'product_name': product_name,
+                                'short_desc': short_desc,
+                                'long_desc': long_desc,
+                                'price': price,
+                                'image_uri': image_uri
+                                })
+                        return {'message': 'new product add successfully to existed category and existed asset', 'code': '200'}
+                else:
+                    print("****************-------------*")
+                    image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+                    files.save(image_uri)
+                    product_id = products.insert({
+                            'category_id': category_id,
+                            'asset_id': asset_id,
+                            'product_name': product_name,
+                            'short_desc': short_desc,
+                            'long_desc': long_desc,
+                            'price': price,
+                            'image_uri': image_uri
+                        })
+                    return {'message': 'new product add successfully to existed category and existed asset', 'code': '200'}
                 
-
-
-
 class MockBlog(Resource):
     def get(self):
         return {
@@ -306,7 +494,6 @@ class MockBlog(Resource):
             ]
         }
 
-
 class UserRegister(Resource):
     def post(self):
         username = request.json['username']
@@ -343,8 +530,60 @@ class USerSignIn(Resource):
         return {'message': 'please check your username again', 'code': '404'}
 
 
+class News(Resource):
+    def get(self):
+        list_blog_data = []
+        blogs = mongo.db.blog
+        if blogs.find():
+            for blog in blogs.find():
+                blog_data = {
+                    "blog_id": str(blog['_id']),
+                    "news_title": blog['news_title'],
+                    "posted_date": blog['posted_date'],
+                    "author": blog['author'],
+                    "short_desc": blog['short_desc'],
+                    "long_desc": blog['long_desc'],
+                    "image_uri": (dir_path + '/' + blog['image_uri'])
+                }
+                list_blog_data.append(blog_data)
+            return {"Blogs": list_blog_data}
+    def post(self):
+        mylist = []
+        today = datetime.date.today()
+        mylist.append(today)
+        blog_data = dict(request.form)
+        print(blog_data)
+        news_title = blog_data['news_title'][0]
+        author = blog_data['author'][0]
+        short_desc = blog_data['short_desc'][0]
+        long_desc = blog_data['long_desc'][0]
+        files = request.files['image_uri']
+
+        extension = os.path.splitext(files.filename)[1]
+        f_name = str(uuid4()) + extension
+        print(f_name)
+        path = 'images/'
+        UPLOAD_FOLDER = path
+
+
+        blogs = mongo.db.blog
+        if blogs.find_one({'news_title': news_title, 'author': author, 'short_desc': short_desc}):
+            return {'message': 'this blogs news already have in database', 'code': '404'}, 404
+        image_uri = os.path.join(UPLOAD_FOLDER, f_name)
+        files.save(image_uri)
+        blog_id = blogs.insert({
+            "news_title": news_title,
+            "posted_date": str(mylist[0]),
+            "author": author,
+            "short_desc": short_desc,
+            "long_desc": long_desc,
+            "image_uri": image_uri
+        })
+        return {'message': 'add blogs news success fully', 'code': '200'},201
+
 if __name__ == '__main__':
     #product
+    api.add_resource(News, '/news')
     api.add_resource(Products, '/products')
     api.add_resource(UserRegister, '/register')
     api.add_resource(USerSignIn, '/signin')
